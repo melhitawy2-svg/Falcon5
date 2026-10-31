@@ -6,12 +6,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: List ZIP contents
+      - name: Unzip project
         run: |
-          echo "=== What's in FalconVPN.zip ==="
-          unzip -l FalconVPN.zip | head -n 100
-          echo "=== Unzipping ==="
-          unzip -o FalconVPN.zip
-          echo "=== Full structure ==="
-          ls -la
-          find . -type f | head -n 100
+          rm -rf app_src
+          mkdir app_src
+          unzip -o FalconVPN.zip -d app_src
+          ls -la app_src
+          find app_src -maxdepth 3 -type f | head -n 100
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Flutter if needed
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+
+      - name: Build APK (Auto Detect)
+        run: |
+          cd app_src
+          # find the real project root
+          PROJECT_ROOT=$(find . -name "pubspec.yaml" -o -name "gradlew" | head -n 1 | xargs dirname)
+          if [ -z "$PROJECT_ROOT" ]; then PROJECT_ROOT="."; fi
+          echo "Project root is: $PROJECT_ROOT"
+          cd "$PROJECT_ROOT"
+          
+          if [ -f "pubspec.yaml" ]; then
+            echo "Detected Flutter project"
+            flutter pub get
+            flutter build apk --debug
+          elif [ -f "gradlew" ]; then
+            echo "Detected Android project"
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          elif [ -f "build.gradle" ]; then
+            echo "Detected Android without wrapper"
+            gradle assembleDebug
+          elif [ -f "package.json" ]; then
+            echo "Detected React Native"
+            npm install
+            cd android
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            echo "Unknown project structure"
+            find . -type f | head -n 200
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Falcon5-APK
+          path: |
+            **/build/app/outputs/flutter-apk/*.apk
+            **/app/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/debug/*.apk
